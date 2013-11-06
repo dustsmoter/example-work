@@ -1,0 +1,435 @@
+<html>
+<head>
+<title>Evolution Simulation</title>
+
+<style>
+
+body
+{
+	font-family: Arial;
+	font-size: 12px;
+}
+
+canvas
+{
+	border: 1px solid #000000;
+}
+
+</style>
+
+ <script src="libraries/RGraph.common.core.js" ></script> 
+    <script src="libraries/RGraph.common.context.js" ></script> 
+    <script src="libraries/RGraph.common.annotate.js" ></script> 
+    <script src="libraries/RGraph.common.tooltips.js" ></script> 
+    <script src="libraries/RGraph.common.zoom.js" ></script> 
+    <script src="libraries/RGraph.common.resizing.js" ></script> 
+    <script src="libraries/RGraph.line.js" ></script> 
+    <!--[if IE 8]><script src="excanvas/excanvas.original.js"></script><![endif]--> 
+
+<script>
+
+// Constants
+var numCreaturesX = 60;
+var numCreaturesY = 30;
+var eatThresh = 8; // 1-18. higher the number, easier for creatures to survive
+var prunePercentage = 0.15; // Percentage of creatures that die from "natural causes"
+var mutationAmount = 20; // RGB amount of change per mutation (Positive or negative)
+var btmDif = 0.25; // How much to take off the bottom for the predators
+var mapStep = 70; // how many turns for map to reach new color
+
+// Chart data
+var chartData = new Array;
+var chartPopData = new Array;
+var curTurn = 0; // our current turn
+
+// Init map
+var mapColor = new Array;
+var targetMapColor = new Array;
+var rStep = 0;
+var gStep = 0;
+var bStep = 0;
+
+randomizeMap();
+mapColor = targetMapColor;
+setMapStep();
+
+// Initialize creatures
+var creatures = new Array(numCreaturesX);
+for (var i = 0; i < numCreaturesX; i++) 
+{
+	creatures[i] = new Array(numCreaturesY);
+	for (var j = 0; j < numCreaturesY; j++) 
+	{
+		creatures[i][j] = {"dif": 0, "alive": true, "r": mapColor.r, "g": mapColor.g, "b": mapColor.b};
+		mutate2(mapColor, i, j);
+		creatures[i][j].dif = calcDif(creatures[i][j], mapColor);
+	}
+} 
+	
+function calcDif( color1, color2 )
+{
+	var r = Math.abs(color1.r - color2.r);
+	var g = Math.abs(color1.g - color2.g);
+	var b = Math.abs(color1.b - color2.b);
+	
+	return Math.round((r + g + b) / 3) / 255 * 10;
+}
+	
+function updateMapColor()
+{
+	if( Math.abs(mapColor.r - targetMapColor.r) >= Math.abs(rStep) )
+		mapColor.r += rStep;
+	else
+		mapColor.r = targetMapColor.r;
+		
+	if( Math.abs(mapColor.g - targetMapColor.g) >= Math.abs(gStep) )
+		mapColor.g += gStep;
+	else
+		mapColor.g = targetMapColor.g;
+		
+	if( Math.abs(mapColor.b - targetMapColor.b) >= Math.abs(bStep) )
+		mapColor.b += bStep;
+	else
+		mapColor.b = targetMapColor.b;
+}	
+	
+function setMapStep()
+{
+	rStep = Math.round((targetMapColor.r - mapColor.r) / mapStep);
+	gStep = Math.round((targetMapColor.g - mapColor.g) / mapStep);
+	bStep = Math.round((targetMapColor.b - mapColor.b) / mapStep);
+}	
+	
+function randomizeMap()
+{
+	targetMapColor = {"r": Math.floor(Math.random()*256), "g": Math.floor(Math.random()*256), "b": Math.floor(Math.random()*256)};
+}
+	
+function drawMapColor()
+{
+	var canvas = document.getElementById('mapColor');  
+	var ctx = canvas.getContext('2d');
+	
+	// Draw map
+	ctx.fillStyle = "rgb(" + mapColor.r + "," + mapColor.g + "," + mapColor.b + ")";  
+	ctx.fillRect (0, 0, 30, 30);
+
+	canvas = document.getElementById('targetMapColor');  
+	ctx = canvas.getContext('2d');	
+	
+	// Draw target map
+	ctx.fillStyle = "rgb(" + targetMapColor.r + "," + targetMapColor.g + "," + targetMapColor.b + ")";  
+	ctx.fillRect (0, 0, 30, 30);
+}	
+
+function averageDifference()
+{
+	var totalCreatures = 0;
+	var difs = new Array;
+	
+	for (var y = 0; y < numCreaturesY; y++) 
+	{
+		for (var x = 0; x < numCreaturesX; x++) 
+		{
+			if( creatures[x][y].alive )
+			{
+				totalCreatures++;
+				difs.push(calcDif(creatures[x][y], mapColor));
+			}
+		}
+	}
+	
+	var sum = 0;
+	for( i=0; i<difs.length -1; i++ )
+		sum += difs[i];
+	
+	return sum / totalCreatures;
+}
+
+function maxDifference()
+{
+	var max = 0;
+	
+	for (var i = 0; i < chartData.length; i++) 
+	{
+		if( chartData[i] > max )
+			max = chartData[i];
+	}
+	
+	return max;
+}
+	
+function drawChart()
+{
+	RGraph.Clear(document.getElementById("chart"));
+	var line = new RGraph.Line("chart", chartData);
+	line.Set('chart.background.barcolor1', 'rgba(255,255,255,1)');
+	line.Set('chart.background.barcolor2', 'rgba(255,255,255,1)');
+	line.Set('chart.background.grid.color', 'rgba(238,238,238,1)');
+	line.Set('chart.colors', ['rgba(255,0,0,1)']);
+	line.Set('chart.linewidth', 1);
+	line.Set('chart.ymax', maxDifference());
+	line.Set('chart.scale.decimals', 1);
+	line.Set('chart.filled', false);
+	line.Set('chart.shadow', true);
+	line.Set('chart.title', "Average Color Difference");
+	line.Set('chart.hmargin', 5);
+	line.Set('chart.gutter.left', 30);
+	line.Draw();
+}
+
+function drawPopChart()
+{
+	RGraph.Clear(document.getElementById("popChart"));
+	var line = new RGraph.Line("popChart", chartPopData);
+	line.Set('chart.background.barcolor1', 'rgba(255,255,255,1)');
+	line.Set('chart.background.barcolor2', 'rgba(255,255,255,1)');
+	line.Set('chart.background.grid.color', 'rgba(238,238,238,1)');
+	line.Set('chart.colors', ['rgba(255,0,0,1)']);
+	line.Set('chart.linewidth', 1);
+	line.Set('chart.filled', false);
+	line.Set('chart.shadow', true);
+	line.Set('chart.ymax', numCreaturesX * numCreaturesY);
+	line.Set('chart.title', "Population Size");
+	line.Set('chart.hmargin', 5);
+	line.Set('chart.gutter.left', 50);
+	line.Draw();
+}
+
+
+	
+function draw()
+{	
+	drawMapColor();
+	
+	var canvas = document.getElementById('screen');  
+	var ctx = canvas.getContext('2d');
+	
+	// Draw map
+	//ctx.fillStyle = "rgb(" + mapColor.r + "," + mapColor.g + "," + mapColor.b + ")";  
+	ctx.fillStyle = "rgb(255,255,255)";
+	ctx.fillRect (0, 0, numCreaturesX * 10, numCreaturesY * 10);		
+	
+	for (var y = 0; y < numCreaturesY; y++) 
+	{
+		for (var x = 0; x < numCreaturesX; x++) 
+		{
+			if( creatures[x][y].alive )
+			{
+				// Draw creatures
+				ctx.fillStyle = "rgb(" + creatures[x][y].r + "," + creatures[x][y].g + "," + creatures[x][y].b + ")";  
+				ctx.fillRect (x * 10, y * 10, 10, 10);
+			}
+			else
+			{
+				ctx.clearRect(x * 10,y * 10, 10, 10);
+			}
+		}
+	}
+}
+
+function creaturesAlive()
+{
+	var count = 0;
+	
+	for (var y = 0; y < numCreaturesY; y++) 
+	{
+		for (var x = 0; x < numCreaturesX; x++) 
+		{
+			if( creatures[x][y].alive )
+				count++;
+		}
+	}
+	
+	return count;
+}
+
+function update( turns )
+{	
+	var turn = 0;
+	while( turn < turns )
+	{
+		// Remove 25% of creatures due to "unluckiness"
+		var totalCreatures = creaturesAlive();
+		var pruneAmount = Math.round(totalCreatures * prunePercentage); // How many need pruning
+		var pruned = 0; // How many we have pruned so far
+		
+		while( pruned < pruneAmount )
+		{
+			var x = Math.floor(Math.random()* numCreaturesX);
+			var y = Math.floor(Math.random()* numCreaturesY);
+				
+			creatures[x][y].alive = false;
+			pruned++;
+		}
+		
+		// Predators "eat" prey based on how "different" they are from the terrain
+		var btmPercent = averageDifference();
+		btmPercent *= btmDif;
+		
+		for (var y = 0; y < numCreaturesY; y++) 
+		{
+			for (var x = 0; x < numCreaturesX; x++) 
+			{
+				var eat = Math.floor(Math.random()* 10 + creatures[x][y].dif);
+				
+				creatures[x][y].dif = calcDif(creatures[x][y], mapColor);
+				
+				if( creatures[x][y].dif >= btmPercent && eat >= eatThresh )
+				{
+					creatures[x][y].alive = false; // Eaten
+				}
+			}
+		}
+		
+		// Reproduce
+		for (var y = 0; y < numCreaturesY; y++) 
+		{
+			for (var x = 0; x < numCreaturesX; x++) 
+			{
+				if( creatures[x][y].alive )
+				{
+					if( Math.floor(Math.random()*4) >= 2 )
+						reproduce(x,y);
+				}
+			}
+		}
+		
+		updateMapColor(); // Gradually update the map towards target map color
+		
+		curTurn++; // Total turns in simulation
+		turn++; // Current loop's worth of turns
+		
+		chartPopData.push(creaturesAlive());
+		chartData.push(averageDifference());	
+	}
+	
+	drawChart();
+	drawPopChart();
+	draw();
+}
+
+function reproduce( x, y )
+{
+	var spotLoc = getNearestCreature(false, x, y); // location of free area to be "born at"
+	//var mateLoc = getNearestCreature(true, spotLoc.x, spotLoc.y); // location of creature to mate with
+	
+	// If we found a free spot
+	if( spotLoc != false )
+	{
+		creatures[spotLoc.x][spotLoc.y].alive = true;
+		mutate(x, y, spotLoc.x, spotLoc.y);
+	}
+}
+
+function getNearestCreature( alive, x1, y1 )
+{
+	var tempDist = 0, dist = 10;
+	var location = new Array;
+	
+	for (var y = 0; y < numCreaturesY; y++) 
+	{
+		for (var x = 0; x < numCreaturesX; x++) 
+		{
+			if( creatures[x][y].alive == alive && x != x1 && y != y1 )
+			{
+				tempDist = Math.sqrt( Math.pow((x1 - x), 2) + Math.pow((y1 - y), 2) );
+				
+				if( tempDist < dist )
+				{
+					dist = tempDist;
+					location = {"x": x, "y": y};
+				}
+			}
+		}
+	}
+	
+	if( location.x != null )
+	{
+		return location;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+function mutate( cX, cY, x, y )
+{
+	creatures[x][y].r = clamp(creatures[cX][cY].r + Math.floor((Math.random() * (-mutationAmount - mutationAmount + 1) + mutationAmount)));
+	creatures[x][y].g = clamp(creatures[cX][cY].g + Math.floor((Math.random() * (-mutationAmount - mutationAmount + 1) + mutationAmount)));
+	creatures[x][y].b = clamp(creatures[cX][cY].b + Math.floor((Math.random() * (-mutationAmount - mutationAmount + 1) + mutationAmount)));
+}
+
+function mutate2( creature, x, y )
+{
+	creatures[x][y].r = creature.r + Math.floor((Math.random() * (-mutationAmount - mutationAmount + 1) + mutationAmount));
+	creatures[x][y].g = creature.g + Math.floor((Math.random() * (-mutationAmount - mutationAmount + 1) + mutationAmount));
+	creatures[x][y].b = creature.b + Math.floor((Math.random() * (-mutationAmount - mutationAmount + 1) + mutationAmount));
+	
+	if( creatures[x][y].r > 255 )
+		creatures[x][y].r = 255;
+	else if( creatures[x][y].r < 0 )
+		creatures[x][y].r = 0;
+		
+	if( creatures[x][y].g > 255 )
+		creatures[x][y].g = 255;
+	else if( creatures[x][y].g < 0 )
+		creatures[x][y].g = 0;
+		
+	if( creatures[x][y].b > 255 )
+		creatures[x][y].b = 255;
+	else if( creatures[x][y].b < 0 )
+		creatures[x][y].b = 0;
+}
+
+function clamp( color )
+{
+	if( color > 255 )
+		color = 255;
+	else if( color < 0 )
+		color = 0;
+		
+	return color;
+}
+
+
+window.onload = function()
+{
+	
+};
+
+</script>
+
+</head>
+<body onload="draw();">
+
+<canvas id="screen" width="600px" height="300px"><h2>If you can see this then your browser doesn't support HTML5 Canvas.</h2></canvas> 
+<canvas id="chart" width="300px" height="300px"></canvas> 
+<canvas id="popChart" width="300px" height="300px"></canvas> 
+<br />
+Map Color: <canvas id="mapColor" width="30px" height="30px"></canvas>
+Target Color: <canvas id="targetMapColor" width="30px" height="30px"></canvas>
+<input type="button" onclick="randomizeMap(); setMapStep(); draw();" value="New Target Color"><br />
+
+<br />
+
+<input type="button" onclick="update(1);" value="Update - 1 Turn"> 
+<input type="button" onclick="update(10);" value="Update - 10 Turns"> 
+<input type="button" onclick="update(25);" value="Update - 25 Turns"> 
+<input type="button" onclick="update(50);" value="Update - 50 Turns">
+
+<br />
+
+<h2>Description:</h2>
+
+<p>To the left is the world. In it, are square creatures with random colors on startup.</p>
+<p>Map color is the current color of the world. Target map color is what the world will gradually turn into. These simulate seasons or even catastrophic geological events.</p>
+<p>Click Update to cycle through a turn (or several) or click New Target Map to change the target map color.</p>
+<p>On a given turn a certain amount of the population will die randomly. Then we calculate how close the color of each creature is to the current map color.</p>
+<p>Predators will then choose the bottom 25% of the population (based on how badly camouflaged they are) and eat them, with a chance the creature will escape the better it's camouflage</p>
+<p>Finally, each creature will reproduce asexually with a small mutation to it's color.</p>
+<p>To the right is a graph showing the populations average difference with the color of the terrain.</p>
+
+</body>
+</html>

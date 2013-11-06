@@ -1,0 +1,427 @@
+<html>
+<head>
+<title>Evolution Simulation 2</title>
+
+<style>
+
+body
+{
+	font-family: Arial;
+	font-size: 12px;
+}
+
+canvas
+{
+	border: 1px solid #000000;
+}
+
+form
+{
+	display: inline;
+	border: 1px dashed #000000;
+	padding: 5px;
+}
+
+.bufferImg
+{
+	display: none;
+}
+
+</style>
+
+<script src="libraries/RGraph.common.core.js" ></script> 
+<script src="libraries/RGraph.line.js" ></script> 
+<!--[if IE 8]><script src="excanvas/excanvas.original.js"></script><![endif]--> 
+
+<script>
+
+// Constants
+var creatureSize = 5;
+var numCreaturesX;
+var numCreaturesY;
+var mutationAmount = 25; // RGB amount of change per mutation (Positive or negative)
+var prunePercentage = 0.25; // Percentage of creatures that die from "natural causes"
+var eatThresh = 35; // (around 100 max) higher the number, easier for creatures to survive
+var btmDif = 0.15; // Percentage of worst camouflauge to remove
+var maxKill = 0.50; // Total maximum percentage allowed to kill of population
+var map = new Array;
+
+// Chart data
+var chartData = new Array;
+var chartPopData = new Array;
+
+// Global vars
+var play = false;
+var ctx;
+var canvas;
+var creatures = new Array(numCreaturesX);
+var totalCreatures = numCreaturesX * numCreaturesY;
+
+function initCreatures()
+{
+	// Reset creatures
+	creatures = new Array;
+
+	for (var x = 0; x < numCreaturesX; x++) 
+	{
+		creatures[x] = new Array(numCreaturesY);
+		for (var y = 0; y < numCreaturesY; y++) 
+		{
+			creatures[x][y] = {"alive": true, "r": Math.floor(Math.random()*256), "g": Math.floor(Math.random()*256), "b": Math.floor(Math.random()*256)};
+		}
+	} 
+}
+
+function initMap()
+{
+	var rAvg, gAvg, bAvg;
+	var imgd;
+	var pix;
+	
+	// Reset map
+	map = new Array;
+	
+	// Get num creatures based on image size
+	numCreaturesX = Math.floor(document.getElementById('srcImg').width / creatureSize);
+	numCreaturesY = Math.floor(document.getElementById('srcImg').height / creatureSize);
+	
+	for (var x = 0; x < numCreaturesX; x++) 
+	{
+		map[x] = new Array(numCreaturesY);
+		
+		for (var y = 0; y < numCreaturesY; y++) 
+		{
+			// cut out creature-sized pixels
+			imgd = ctx.getImageData(x * creatureSize, y * creatureSize, creatureSize, creatureSize);
+			pix = imgd.data;
+		
+			rAvg = 0; gAvg = 0; bAvg = 0;
+			for (var i = 0, n = pix.length; i < n; i += 4) 
+			{
+				rAvg += pix[i ];
+				gAvg += pix[i+1];
+				bAvg += pix[i+2];
+			}
+		
+			map[x][y] = {"r": Math.floor(rAvg / (creatureSize * creatureSize)), "g": Math.floor(gAvg / (creatureSize * creatureSize)), "b": Math.floor(bAvg / (creatureSize * creatureSize))};
+		}
+	} 
+}
+
+function calcDif( color1, color2 )
+{
+	var r = Math.abs(color1.r - color2.r);
+	var g = Math.abs(color1.g - color2.g);
+	var b = Math.abs(color1.b - color2.b);
+	
+	return Math.round((r + g + b) / 3) / 255 * 100;
+}
+
+function averageDifference()
+{
+	totalCreatures = 0;
+	var difs = new Array;
+	
+	for (var y = 0; y < numCreaturesY; y++) 
+	{
+		for (var x = 0; x < numCreaturesX; x++) 
+		{
+			if( creatures[x][y].alive )
+			{
+				totalCreatures++;
+				difs.push(calcDif(creatures[x][y], map[x][y]));
+			}
+		}
+	}
+	
+	var sum = 0;
+	for( i=0; i<difs.length -1; i++ )
+		sum += difs[i];
+	
+	return sum / totalCreatures;
+}
+
+function getNearestCreature( alive, x1, y1 )
+{
+	var tempDist = 0, dist = 10;
+	var location = new Array;
+	
+	for (var y = 0; y < numCreaturesY; y++) 
+	{
+		for (var x = 0; x < numCreaturesX; x++) 
+		{
+			if( creatures[x][y].alive == alive && x != x1 && y != y1 )
+			{
+				tempDist = Math.sqrt( Math.pow((x1 - x), 2) + Math.pow((y1 - y), 2) );
+				
+				if( tempDist < dist )
+				{
+					dist = tempDist;
+					location = {"x": x, "y": y};
+				}
+			}
+		}
+	}
+	
+	if( location.x != null )
+	{
+		return location;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+function reproduce( x, y )
+{
+	var spotLoc = getNearestCreature(false, x, y); // location of free area to be "born at"
+	//var mateLoc = getNearestCreature(true, spotLoc.x, spotLoc.y); // location of creature to mate with
+	
+	// If we found a free spot
+	if( spotLoc != false )
+	{
+		creatures[spotLoc.x][spotLoc.y].alive = true;
+		mutate(x, y, spotLoc.x, spotLoc.y);
+	}
+}
+
+function mutate( cX, cY, x, y )
+{
+	creatures[x][y].r = clamp(creatures[cX][cY].r + Math.floor((Math.random() * (-mutationAmount - mutationAmount + 1) + mutationAmount)));
+	creatures[x][y].g = clamp(creatures[cX][cY].g + Math.floor((Math.random() * (-mutationAmount - mutationAmount + 1) + mutationAmount)));
+	creatures[x][y].b = clamp(creatures[cX][cY].b + Math.floor((Math.random() * (-mutationAmount - mutationAmount + 1) + mutationAmount)));
+}
+
+function clamp( color )
+{
+	if( color > 255 )
+		color = 255;
+	else if( color < 0 )
+		color = 0;
+		
+	return color;
+}
+
+function update( turns )
+{
+	var turn = 0;
+	
+	while( turn < turns )
+	{
+		// -- Prune creatures
+		var pruneAmount = Math.round(totalCreatures * prunePercentage); // How many need pruning
+		var pruned = 0; // How many we have pruned so far
+		while( pruned < pruneAmount )
+		{
+			var x = Math.floor(Math.random()* numCreaturesX);
+			var y = Math.floor(Math.random()* numCreaturesY);
+				
+			creatures[x][y].alive = false;
+			pruned++;
+		}
+		// -- End Prune creatures
+	
+		// -- Predators eat prey
+		var btmPercent = averageDifference();
+		var killCount = 0;
+		btmPercent *= btmDif;
+		
+		for (var y = 0; y < numCreaturesY; y++) 
+		{
+			for (var x = 0; x < numCreaturesX; x++) 
+			{
+				if( creatures[x][y].alive )
+				{
+					var dif = calcDif(creatures[x][y], map[x][y]);
+					var eat = Math.floor(Math.random()* 30 + dif);
+					
+					if( dif >= btmPercent && eat >= eatThresh && killCount < totalCreatures * maxKill )
+					{
+						killCount++;
+						creatures[x][y].alive = false;
+					}
+					// -- Reproduce
+					else //if( Math.floor(Math.random()*4) >= 2 )
+						reproduce(x,y);
+					// -- End Reproduce
+				}
+			}
+		}
+		// -- End Predators eat prey
+		
+		chartPopData.push(totalCreatures);
+		chartData.push(averageDifference());
+		
+		turn++;
+	}
+	
+	drawChart();
+	drawPopChart();
+	draw();
+}
+
+function changeBufferImage( img )
+{
+	document.getElementById('srcImg').src = "screen" + img + ".gif";
+	
+	// Reload src image into canvas
+	ctx.drawImage(document.getElementById('srcImg'), 0, 0);
+	
+	// Reintialize map
+	initMap();
+	
+	// Redraw
+	draw();
+	drawChart();
+	drawPopChart();
+}
+
+function draw()
+{	
+	var drawType = getCheckedValue(document.display.displayType);
+
+	// Draw map
+	//ctx.drawImage(document.getElementById('srcImg'), 0, 0);
+
+	// Draw creatures
+	for (var y = 0; y < numCreaturesY; y++) 
+	{
+		for (var x = 0; x < numCreaturesX; x++) 
+		{
+			if( creatures[x][y].alive )
+			{
+				ctx.fillStyle = "rgb(" + creatures[x][y].r + "," + creatures[x][y].g + "," + creatures[x][y].b + ")";  
+				
+				if( drawType == 'circle' )
+				{
+					ctx.strokeStyle = "#FFFF00";
+					ctx.beginPath();
+					ctx.arc(x * creatureSize + (creatureSize / 2), y * creatureSize + (creatureSize / 2), 3, 0, Math.PI * 2);
+					ctx.closePath();
+					ctx.stroke();
+					ctx.fill();
+				}
+				else if( drawType = 'square' )
+				{
+					ctx.fillRect (x * creatureSize, y * creatureSize, creatureSize, creatureSize);
+				}
+			}
+			else
+			{
+				ctx.clearRect (x * creatureSize, y * creatureSize, creatureSize, creatureSize);
+			}
+		}
+	}
+}
+
+function drawChart()
+{
+	RGraph.Clear(document.getElementById("chart"));
+	var line = new RGraph.Line("chart", chartData);
+	line.Set('chart.background.barcolor1', 'rgba(255,255,255,1)');
+	line.Set('chart.background.barcolor2', 'rgba(255,255,255,1)');
+	line.Set('chart.background.grid.color', 'rgba(238,238,238,1)');
+	line.Set('chart.colors', ['rgba(255,0,0,1)']);
+	line.Set('chart.linewidth', 1);
+	line.Set('chart.ymax', 40);
+	line.Set('chart.scale.decimals', 0);
+	line.Set('chart.filled', false);
+	line.Set('chart.shadow', true);
+	line.Set('chart.title', "Average Color Difference");
+	line.Set('chart.hmargin', 5);
+	line.Set('chart.gutter.left', 30);
+	line.Draw();
+}
+
+function drawPopChart()
+{
+	RGraph.Clear(document.getElementById("popChart"));
+	var line = new RGraph.Line("popChart", chartPopData);
+	line.Set('chart.background.barcolor1', 'rgba(255,255,255,1)');
+	line.Set('chart.background.barcolor2', 'rgba(255,255,255,1)');
+	line.Set('chart.background.grid.color', 'rgba(238,238,238,1)');
+	line.Set('chart.colors', ['rgba(255,0,0,1)']);
+	line.Set('chart.linewidth', 1);
+	line.Set('chart.filled', false);
+	line.Set('chart.shadow', true);
+	line.Set('chart.ymax', numCreaturesX * numCreaturesY);
+	line.Set('chart.title', "Population Size");
+	line.Set('chart.hmargin', 5);
+	line.Set('chart.gutter.left', 50);
+	line.Draw();
+}
+
+window.onload = function()
+{
+	// Canvas
+	canvas = document.getElementById('map');  
+	ctx = canvas.getContext('2d');
+	
+	// Load src image into canvas
+	ctx.drawImage(document.getElementById('srcImg'), 0, 0);
+	
+	// Calculate map colors and Init Map
+	initMap();
+	
+	// Initialize creatures
+	initCreatures();
+	
+	// Initial draw
+	draw();
+};
+
+function getCheckedValue(radioObj) 
+{
+	if(!radioObj)
+		return "";
+	var radioLength = radioObj.length;
+	if(radioLength == undefined)
+		if(radioObj.checked)
+			return radioObj.value;
+		else
+			return "";
+	for(var i = 0; i < radioLength; i++) {
+		if(radioObj[i].checked) {
+			return radioObj[i].value;
+		}
+	}
+	return "";
+}
+
+</script>
+
+</head>
+<body>
+
+<canvas id="map" width="600px" height="300px"><h2>If you can see this then your browser doesn't support HTML5 Canvas.</h2></canvas> 
+<img id="srcImg" src="screen1.gif" alt="screen image" />
+
+<img id="bufferImg1" class="bufferImg" src="screen1.gif" alt="screen 1 image" />
+<img id="bufferImg2" class="bufferImg" src="screen2.gif" alt="screen 2 image" />
+<img id="bufferImg3" class="bufferImg" src="screen3.gif" alt="screen 3 image" />
+<img id="bufferImg4" class="bufferImg" src="screen4.gif" alt="screen 4 image" />
+
+<br />
+
+<canvas id="chart" width="600px" height="300px"></canvas> 
+<canvas id="popChart" width="600px" height="300px"></canvas> 
+
+<br />
+
+<input type="button" onclick="update(1);" value="Update - 1 Turn"> 
+<input type="button" onclick="update(5);" value="Update - 5 Turns"> 
+
+<input type="button" onclick="changeBufferImage(1);" value="Image 1"> 
+<input type="button" onclick="changeBufferImage(2);" value="Image 2"> 
+<input type="button" onclick="changeBufferImage(3);" value="Image 3"> 
+<input type="button" onclick="changeBufferImage(4);" value="Image 4"> 
+
+<form name="display">
+	<b>Display Type:</b> 
+	<input type="radio" name="displayType" value="square" onchange="draw();" checked /> Square
+	<input type="radio" name="displayType" value="circle" onchange="draw();" /> Circle
+</form>
+
+</body>
+</html>

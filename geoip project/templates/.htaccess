@@ -1,0 +1,3 @@
+RewriteEngine On
+RewriteCond $1 !^(index\.php|lib|parts|pages|images|robots\.txt|favicon\.ico|404\.shtml)
+RewriteRule ^(.*)$ /home/[ACCOUNT_NAME]/public_html/index.php/$1 [L]
