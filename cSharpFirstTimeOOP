@@ -1,0 +1,243 @@
+/*
+ *  A quick experiment learning C# OOP. Using observer pattern, Linq and other OOP techniques.  
+ */
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace ConsoleApplication3
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            ConsoleLogger Logger = new ConsoleLogger();
+            TransactionObserver transObserver = new TransactionObserver(Logger);
+            Processor Proc = new Processor(Logger);
+
+            // Pretend outside data source
+            List<Transaction> transactions = new List<Transaction>();
+            Transaction trans1 = new Transaction(1, new int[] { 1, 2, 3 });
+            trans1.Attach(transObserver);
+            transactions.Add(trans1);
+            Transaction trans2 = new Transaction(2, new int[] { 1, 2, 3 });
+            trans2.Attach(transObserver);
+            transactions.Add(trans2);
+            Transaction trans3 = new Transaction(3, new int[] { 4, 5, 6 });
+            trans3.Attach(transObserver);
+            transactions.Add(trans3);
+
+            // Load transactions
+            Proc.LoadTransactions(transactions);
+
+            try
+            {
+                Proc.Process();
+
+                int processedTransactions = Proc.ProcessedTransactions().Count;
+                int unprocessedTransactions = Proc.UnprocessedTransactions().Count;
+
+                Proc.Logger.Log("Total Transactions: " + transactions.Count);
+                Proc.Logger.Log("Processed Transaction: " + processedTransactions);
+                Proc.Logger.Log("Unprocessed Transaction: " + unprocessedTransactions);
+
+            }
+            catch (ProcessNoTransactionsException e)
+            {
+                Proc.Logger.Log("No transactions for this process");
+            }
+        }
+    }
+
+    enum Events
+    {
+        TransactionProcessed,
+        TransactionInvalid,
+    }
+
+    abstract class Observer
+    {
+        public abstract void Update(Subject subject, Events e);
+    }
+
+    class TransactionObserver : Observer
+    {
+        ILogger Logger;
+
+        public TransactionObserver(ILogger logger)
+        {
+            this.Logger = logger;
+        }
+
+        public override void Update(Subject subject, Events e)
+        {
+            Transaction trans = subject as Transaction;
+
+            switch (e)
+            {
+                case Events.TransactionProcessed:
+                    this.Logger.Log(trans.Id + " was processed.");
+                    break;
+
+                case Events.TransactionInvalid:
+                    this.Logger.Log(trans.Id + " had invalid codes and was not processed.");
+                    break;
+
+                default:
+                    this.Logger.Log("Uncaught Event: " + e);
+                    break;
+            }
+        }
+    }
+
+    abstract class Subject
+    {
+        public abstract void Attach(Observer observer);
+        public abstract void Detach(Observer observer);
+        public abstract void Notify(Events e);
+    }
+
+    class Transaction : Subject
+{
+        public int Id { get; private set; }
+        public int[] Codes { get; private set; }
+
+        private bool _Processed = false;
+        public bool Processed
+        {
+            get
+            {
+                return this._Processed;
+            }
+            set
+            {
+                this._Processed = value;
+
+                // If processed then notify
+                if (value)
+                {
+                    this.Notify(Events.TransactionProcessed);
+                }
+            }
+        }
+
+        public List<Observer> Observers = new List<Observer>();
+
+        public Transaction(int Id, int[] codes = null)
+        {
+            this.Id = Id;
+
+            if (codes != null && codes.GetType() == typeof(int[]))
+            {
+                this.Codes = codes;
+            }
+        }
+
+        public void SetCodes(int[] codes)
+        {
+            this.Codes = codes;
+        }
+
+        public bool HasCodes()
+        {
+            return (this.Codes != null && this.Codes.Length > 0) ? true : false;
+        }
+
+        public override void Attach(Observer observer)
+        {
+            this.Observers.Add(observer);
+        }
+
+        public override void Detach(Observer observer)
+        {
+            this.Observers.Remove(observer);
+        }
+
+        public override void Notify(Events e)
+        {
+            this.Observers.ForEach(observer => observer.Update(this, e));
+        }
+    }
+
+    class Processor
+    {
+        public ILogger Logger;
+
+        private List<Transaction> transactions;
+
+        public Processor(ILogger logger)
+        {
+            this.Logger = logger;
+        }
+
+        public void LoadTransactions(List<Transaction> transactions)
+        {
+            this.transactions = transactions;
+        }
+
+        public void Process()
+        {
+            if (this.transactions.Any())
+            {
+                this.transactions.ForEach(transaction => {
+                    if (transaction.HasCodes() && this.ValidCodes(transaction.Codes))
+                    {
+                        // Pretend transaction was processed here.
+                        transaction.Processed = true;
+                    }
+                    else
+                    {
+                        transaction.Notify(Events.TransactionInvalid);
+                    }
+                });
+            }
+            else
+            {
+                throw new ProcessNoTransactionsException();
+            }
+        }
+
+        private bool ValidCodes(int[] codes)
+        {
+            // Codes that are considered "valid" in this Demo app.
+            int[] validCodes = new int[] { 1, 2, 3 };
+
+            foreach (int code in codes)
+            {
+                if (!validCodes.Contains(code))
+                    return false;
+            }
+
+            return true;
+
+        }
+
+        public List<Transaction> UnprocessedTransactions()
+        {
+            return this.transactions.Where(t => !t.Processed).ToList();
+        }
+
+        public List<Transaction> ProcessedTransactions()
+        {
+            return this.transactions.Where(t => t.Processed).ToList();
+        }
+    }
+
+    class ProcessNoTransactionsException : Exception {};
+
+    interface ILogger
+    {
+        void Log(String message);
+    }
+
+    class ConsoleLogger : ILogger
+    {
+        public void Log (String message)
+        {
+            Console.WriteLine(message);
+        }
+    }
+}
