@@ -26,8 +26,9 @@ namespace ConsoleApplication3
             Transaction trans2 = new Transaction(2, new int[] { 1, 2, 3 });
             trans2.Attach(transObserver);
             transactions.Add(trans2);
-            Transaction trans3 = new Transaction(3, new int[] { 4, 5, 6 });
+            Transaction trans3 = new Transaction(3);
             trans3.Attach(transObserver);
+            trans3.SetCodes(new int[] { 4, 5, 6 });
             transactions.Add(trans3);
 
             // Load transactions
@@ -80,15 +81,15 @@ namespace ConsoleApplication3
             {
                 case Events.TransactionProcessed:
                     this.Logger.Log(trans.Id + " was processed.");
-                    break;
+                break;
 
                 case Events.TransactionInvalid:
                     this.Logger.Log(trans.Id + " had invalid codes and was not processed.");
-                    break;
+                break;
 
                 default:
                     this.Logger.Log("Uncaught Event: " + e);
-                    break;
+                break;
             }
         }
     }
@@ -101,7 +102,7 @@ namespace ConsoleApplication3
     }
 
     class Transaction : Subject
-{
+    {
         public int Id { get; private set; }
         public int[] Codes { get; private set; }
 
@@ -132,7 +133,7 @@ namespace ConsoleApplication3
 
             if (codes != null && codes.GetType() == typeof(int[]))
             {
-                this.Codes = codes;
+                this.SetCodes(codes);
             }
         }
 
