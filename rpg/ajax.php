@@ -1,5 +1,11 @@
 <?php
 
+function my_autoloader($class) {
+    include 'classes/' . $class . '.class.php';
+}
+
+spl_autoload_register('my_autoloader');
+
 require("classes/class.game.php");
 
 session_start();
@@ -18,6 +24,10 @@ if( !empty($_POST) )
 	
 	$output = "<br><b>$cmd</b><br>";
 	
+	$apply_status_commands = array('north','south','west','east','attack');
+	if (in_array($cmd, $apply_status_commands))
+		$output .= $game->statuses(); // Handle poisons, other effects, etc when moving or attacking.
+	
 	if( $game->hp <= 0 )
 	{
 		die("You are dead.<br>");
@@ -25,19 +35,19 @@ if( !empty($_POST) )
 	
 	switch( $cmd )
 	{
-		case 'n':
+		case 'north':
 			$output .= $game->move($game->x, $game->y - 1);
 		break;
 		
-		case 's':
+		case 'south':
 			$output .= $game->move($game->x, $game->y + 1);
 		break;
 		
-		case 'w':
+		case 'west':
 			$output .= $game->move($game->x - 1, $game->y);
 		break;
 		
-		case 'e':
+		case 'east':
 			$output .= $game->move($game->x + 1, $game->y);
 		break;
 		
@@ -47,6 +57,14 @@ if( !empty($_POST) )
 		
 		case 'look':
 			$output .= $game->get_description();
+		break;
+		
+		case 'status':
+			$output .= $game->get_statuses();
+		break;
+		
+		case 'pickup':
+			$output .= $game->pickup_items();
 		break;
 	}
 	

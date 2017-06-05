@@ -20,11 +20,13 @@ file_put_contents('session/game_' . session_id(), $s);
 $(document).ready(function()
 {
 	$('#attack').click(function(){command("attack");});
-	$('#n').click(function(){command("n");});
-	$('#s').click(function(){command("s");});
-	$('#w').click(function(){command("w");});
-	$('#e').click(function(){command("e");});
+	$('#status').click(function(){command("status");});
+	$('#north').click(function(){command("north");});
+	$('#south').click(function(){command("south");});
+	$('#west').click(function(){command("west");});
+	$('#east').click(function(){command("east");});
 	$('#look').click(function(){command("look");});
+	$('#pickup').click(function(){command("pickup");});
 });
 
 function command( cmd )
@@ -76,25 +78,26 @@ function parseCommand(msg)
 <!--<input type="text" name="comamand" id="command">-->
 <input type="button" id="look" value="Look"> 
 <input type="button" id="attack" value="Attack"> 
-
+<input type="button" id="status" value="Status"> 
+<input type="button" id="pickup" value="Pickup"> 
 <table>
 	<tr>
 		<td colspan="2" align="center">
-			<input type="button" id="n" value="North"> 
+			<input type="button" id="north" value="North"> 
 		</td>
 	</tr>
 	<tr>
 		<td>
-			<input type="button" id="w" value="West"> 
+			<input type="button" id="west" value="West"> 
 		</td>
 		
 		<td>
-			<input type="button" id="e" value="East"> 
+			<input type="button" id="east" value="East"> 
 		</td>
 	</tr>
 	<tr>
 		<td colspan="2" align="center">
-			<input type="button" id="s" value="South"> 
+			<input type="button" id="south" value="South"> 
 		</td>
 	</tr>
 </table>
