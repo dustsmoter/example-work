@@ -1,0 +1,203 @@
+
+
+<template>
+    <div>
+        <input type="text" placeholder="Search for courses" @keydown.enter.prevent="search" v-model="paginate.query" style="margin-bottom: 10px;" :disabled="loading">
+        <select v-model="paginate.limitSchool">
+            <option :value="null">Select School</option>
+            <option v-for="school in schools" :value="school.id">
+                {{ school.name }}
+            </option>
+        </select>
+        <button type="button" class="btn btn-small btn-info" @click="search()" :disabled="loading">Search</button>
+
+        <table class="table table-striped table-hover table-bordered add-program-course">
+            <thead>
+                <tr>
+                    <th v-for="(column, name) in columns" v-if="!column.hide" @click="sort(name)" class="sortable">
+                        {{ column.title }}
+                        <i v-if="paginate.orderBy == name && paginate.asc == 1" class="fa fa-sort-asc fa-pull-right" aria-hidden="true"></i>
+                        <i v-if="paginate.orderBy == name && paginate.asc == 0" class="fa fa-sort-desc fa-pull-right" aria-hidden="true"></i>
+                    </th>
+
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody v-if="hasData && !loading">
+                <tr v-for="course in tableData" :key="course.id">
+                    <td>{{ course.department_name }}</td>
+                    <td>{{ course.department_number }}</td>
+                    <td>{{ course.title }}</td>
+                    <td>{{ course.control_number }}</td>
+                    <td>{{ course.top_code.program_code }}{{ course.top_code.sub_code }}.{{ course.top_code.reproduction_code }}</td>
+                    <td>{{ course.status.content }}</td>
+                    <td>
+                        <button type="button" class="btn btn-small btn-success" @click="$emit('addcourse', course)" v-if="addedCourseIds.indexOf(course.id) === -1">Add</button>
+                        <button type="button" class="btn btn-small btn-danger" @click="$emit('removecourse', course)" v-if="addedCourseIds.indexOf(course.id) !== -1">Remove</button>
+                    </td>
+                </tr>
+            </tbody>
+            <tbody v-if="!hasData && !loading">
+                <tr>
+                    <td colspan="7" style="text-align: center;"><h3>No data to show.</h3></td>
+                </tr>
+            </tbody>
+            <tbody v-if="loading">
+                <tr>
+                    <td colspan="7" style="text-align: center;"><h3>Loading...</h3></td>
+                </tr>
+            </tbody>
+        </table>
+        <ul class="pagination" v-if="hasData">
+            <li class="paginate_button"
+                @click="changePage(paginate.currentPage - 1)"
+                :class="{ disabled: paginate.currentPage == 1 || loading }"
+                :disabled="loading"
+            >
+                <a href="#">Prev</a>
+            </li>
+            <li
+                class="paginate_button"
+                :key="page"
+                v-for="page in pages"
+                @click="changePage(page)"
+                :class="{ disabled: page == paginate.currentPage || loading, active: page == paginate.currentPage }"
+                :disabled="page == paginate.currentPage || loading"
+            >
+                <a href="#">{{ page }}</a>
+            </li>
+            <li class="paginate_button"
+                @click="changePage(paginate.currentPage + 1)"
+                :class="{ disabled: paginate.currentPage == paginate.totalPages || loading }"
+                :disabled="loading"
+            >
+                <a href="#">Next</a>
+            </li>
+        </ul>
+    </div>
+</template>
+
+<style type="text/css">
+    table.add-program-course th.sortable:hover {
+        background-color: #b9def0;
+        cursor: pointer;
+    }
+</style>
+
+<script>
+    export default {
+        data: function() {
+            return {
+                loading: false,
+                tableData: [],
+                columns: {
+                    id:                 { hide: true },
+                    department_name:    { title: 'Department Name' },
+                    department_number:  { title: 'Department Number' },
+                    title:              { title: 'Title' },
+                    control_number:     { title: 'Control Number (CCN)' },
+                    top_code:           { title: 'TOP Code' },
+                    status:             { title: 'Status' },
+                },
+                paginate: {
+                    currentPage: 1,
+                    totalPages: 0,
+                    count: 0,
+                    limit: 5,
+                    limitSchool: null,
+                    query: '',
+                    orderBy: 'department_name',
+                    asc: 1,
+                }
+            }
+        },
+        props: {
+            url: { required: true },
+            addedCourseIds: { required: true },
+            schools: { required: true }
+        },
+        methods: {
+            sort: function(columnName) {
+                if (columnName == this.paginate.orderBy) {
+                    this.paginate.asc = (this.paginate.asc == 1) ? 0 : 1;
+                }
+
+                this.paginate.orderBy = columnName;
+                this.getData();
+            },
+            search: function() {
+                // TODO: Cancel pending xhr requests?
+                this.paginate.currentPage = 1;
+                this.getData();
+            },
+            addCourse(course) {
+                console.log(course);
+                this.$emit('addCourse', course);
+            },
+            removeCourse(course) {
+                console.log(course);
+                this.$emit('removeCourse', course);
+            },
+            changePage(page) {
+                this.paginate.currentPage = page;
+                this.getData();
+            },
+            getData() {
+                var vm = this;
+                this.loading = true;
+
+                var data = this.paginate;
+                data.addedCourseIds = this.addedCourseIds;
+
+                this.$http.post(this.url, data).then(function (response) {
+                    vm.loading = false;
+                    vm.paginate.count = response.data.count;
+                    vm.tableData = [];
+                    $.each(response.data.data, function(courseKey, course) {
+                        var pushObj = {};
+                        $.each(course, function(key, val) {
+                            if (vm.columns[key]) {
+                                pushObj[key] = val ? val : '';
+                            }
+                        });
+                        vm.tableData.push(pushObj);
+                    });
+                }).catch(function (error){
+                    vm.loading = false;
+                    // TODO: display error
+                });
+            },
+        },
+        computed: {
+            hasData: function() {
+                return this.tableData.length > 0;
+            },
+            pages: function() {
+                if (this.paginate.count && this.paginate.limit) {
+                    this.paginate.totalPages = parseInt(this.paginate.count / this.paginate.limit);
+
+                    var pages = [];
+
+                    var startPage = this.paginate.currentPage - 5;
+                    if (startPage < 1) startPage = 1;
+
+                    var endPage = this.paginate.currentPage + 5;
+                    if (endPage > this.paginate.totalPages) endPage = this.paginate.totalPages;
+
+                    for (var i = startPage; i <= endPage; i++) {
+                        pages.push(i);
+                    }
+
+                    if (endPage < this.paginate.totalPages) {
+                        pages.push(this.paginate.totalPages);
+                    }
+
+                    return pages;
+                }
+            }
+        },
+        mounted() {
+            this.getData();
+        }
+    }
+</script>

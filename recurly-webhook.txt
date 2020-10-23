@@ -1,0 +1,89 @@
+<?php namespace App\Http\Controllers\Webhooks;
+
+use Illuminate\Http\Request;
+use App\Billing\Billing;
+use App\Billing\Repositories\BillingPlanRepository;
+use App\Http\Controllers\Controller;
+use App\Users\Repositories\UserRepository;
+use Symfony\Component\HttpFoundation\IpUtils;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
+
+class RecurlyController extends Controller
+{
+
+    /**
+     * @var Billing
+     */
+    private $billing;
+    /**
+     * @var UserRepository
+     */
+    private $userRepo;
+    /**
+     * @var BillingPlanRepository
+     */
+    private $billingPlanRepo;
+
+    /**
+     * @param Billing $billing
+     * @param UserRepository $userRepo
+     * @param BillingPlanRepository $billingPlanRepo
+     */
+    public function __construct(Billing $billing, UserRepository $userRepo, BillingPlanRepository $billingPlanRepo)
+    {
+        $this->billing = $billing;
+        $this->userRepo = $userRepo;
+        $this->billingPlanRepo = $billingPlanRepo;
+    }
+
+    /**
+     * @Post("webhooks/recurly", as="webhooks.recurly")
+     * @param Request $request
+     * @return string
+     */
+    public function index(Request $request)
+    {
+        $validWebhookIps = [
+            '127.0.0.1',
+        ];
+
+        // Verify incoming request is from Recurly.
+        if (!IpUtils::checkIp($request->ip(), $validWebhookIps))
+            $this->abortAndLog(HttpResponse::HTTP_FORBIDDEN);
+
+        try {
+            $postXml = file_get_contents("php://input");
+            $notification = new \Recurly_PushNotification($postXml);
+
+            if (!$user = $this->userRepo->getById($notification->account->account_code)) {
+                $this->abortAndLog(HttpResponse::HTTP_INTERNAL_SERVER_ERROR, "Could not find user({$notification->account->account_code}).");
+            }
+
+            if (!$companyId = $this->userRepo->getPrimaryCompanyId($user['id'])) {
+                $this->abortAndLog(HttpResponse::HTTP_INTERNAL_SERVER_ERROR, "Could not find user({$user['id']})'s primary company.");
+            }
+
+            // Set billing company and not to sync back with recurly.
+            $this->billing->setCompany($companyId)->setSync(false);
+
+            switch ($notification->type) {
+                case 'expired_subscription_notification':
+                    if (!$billingPlan = $this->billingPlanRepo->getById($notification->subscription->plan->plan_code, ['billingAddons'])) {
+                        $this->abortAndLog(HttpResponse::HTTP_INTERNAL_SERVER_ERROR, "Could not find billing plan({$notification->subscription->plan->plan_code}).");
+                    }
+
+                    $this->billing->unsubscribe($user, $billingPlan);
+                    break;
+            }
+        } catch (\Exception $e) {
+            $this->abortAndLog(HttpResponse::HTTP_INTERNAL_SERVER_ERROR, $e->getMessage());
+        }
+
+        return 'OK';
+    }
+
+    private function abortAndLog($statusCode, $message = '')
+    {
+        abort($statusCode, $message);
+    }
+}

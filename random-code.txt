@@ -1,0 +1,50 @@
+	/**
+     * Shortcut to call any UserRepository method provided it's first parameter is valid.
+     *
+     * @param string $name
+     * @param array $arguments
+     * @return mixed
+     * @throws \Exception
+     */
+    public function __call($name, $arguments)
+    {
+        $validParams = ['userId', 'ownerId'];
+
+        if (!$this->user()) return false;
+
+        if (method_exists($this->userRepo, $name)) {
+            $method = new \ReflectionMethod($this->userRepo, $name);
+
+            if (in_array($method->getParameters()[0]->name, $validParams)) {
+                array_unshift($arguments, $this->user()['id']);
+                return call_user_func_array([$this->userRepo, $name], $arguments);
+            }
+
+            throw new \Exception("Method '$name' exists in UserRepository but it's first argument is not in [" . implode(', ', $validParams) . "].");
+        }
+
+        throw new \Exception("Method '$name' does not exist in UserRepository.");
+    }
+	
+	/**
+     * Traverse up Company tree until supplied callback returns true.
+     *
+     * @param int $startCompanyId
+     * @param callable $callback
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     * @return mixed|null
+     */
+    public function getUntil($startCompanyId, callable $callback)
+    {
+        $company = Company::findOrFail($startCompanyId);
+        $ascendants = $company->getAncestorsAndSelf()->sortByDesc(function($company) {
+            return $company['depth'];
+        });
+
+        foreach ($ascendants->lists('id')->all() as $companyId) {
+            if ($return = call_user_func($callback, $companyId))
+                return $return;
+        }
+
+        return null;
+    }

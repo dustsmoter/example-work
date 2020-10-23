@@ -1,0 +1,306 @@
+var selected = -1;
+var links = [
+	"playbook_measure.php#roadmap",
+	"playbook_measure.php#account_management",
+	"playbook_measure.php#enterprise_feedback_management",
+	"playbook_analyze.php#business_intelligence",
+	"playbook_analyze.php#analytics",
+	"playbook_analyze.php#benchmarking",
+	"playbook_act.php#correctiveactionplan",
+	"playbook_act.php#employee_engagement",
+	"playbook_act.php#cemdna_change_management",
+	"playbook_assess.php#communication_to_stakeholders",
+	"playbook_assess.php#winback_analysis",
+	"playbook_assess.php#return_investments",
+	"playbook_measure.php",
+	"playbook_analyze",
+	"playbook_act",
+	"playbook_assess",
+];
+
+var rotation = 0.0;			// Current rotation
+var rotationMax = 1.55;		// Max rotation speed
+var rotationStep = 0.015;	// Rotation acceleration & direction
+var rotationSpeed = 0;		// Current rotation speed
+var rotationChangeTimeout = 5; // Seconds after rotation change until it can reverse again
+var allowRotationChange = false;
+var mousePos;
+var wheelPath;
+var wheelCanvas, maskCanvas;
+var wheelCtx, maskCtx;
+var imgWheel, hover, needle, imgWheelMask;
+var frame;
+
+function wheelInit() {
+	wheelCanvas = document.getElementById('wheelCanvas');
+	maskCanvas = document.getElementById('maskCanvas');
+	maskCanvas.style.display = "none";
+	wheelCtx = wheelCanvas.getContext('2d');
+	maskCtx = maskCanvas.getContext('2d');
+
+	wheelPath = wheelCanvas.getAttribute('data-wheel-path');
+	wheelPath += "/img";
+
+	needle = new Image();
+	needle.src = wheelPath + '/needle.png';
+	
+	frame = new Image();
+	frame.src = wheelPath + '/frame.png';
+
+	// Load all 16 images
+	hover = [];
+	for (i = 0; i < 16; i++) {
+		hover[i] = new Image();
+		hover[i].src = wheelPath + "/" + (i + 1) + '.png';
+	}
+
+	imgWheel = new Image();
+	imgWheel.onload = function(){
+		wheelCanvas.width = imgWheel.naturalWidth
+		wheelCanvas.height = imgWheel.naturalHeight
+		wheelCtx.drawImage(imgWheel, 0, 0);
+		_wheelInit();
+	}
+	imgWheel.src = wheelPath + '/wheel.jpg';
+
+	imgWheelMask = new Image();
+	imgWheelMask.onload = function(){
+		maskCanvas.width = imgWheelMask.naturalWidth
+		maskCanvas.height = imgWheelMask.naturalHeight
+		maskCtx.drawImage(imgWheelMask, 0, 0);
+	}
+	imgWheelMask.src = wheelPath + '/mask.png';
+}
+
+function _wheelInit() {
+	// Click on sections
+	wheelCanvas.addEventListener('click', function(evt) {
+		if (selected != -1) {
+			location.href= links[selected];
+		}
+	}, false);
+
+	// Unselect if mouse out of canvas element
+	wheelCanvas.addEventListener ("mouseout", function() { selected = -1; wheelCanvas.style.cursor = "default"; }, false);
+
+	// Mouse move input mask detection
+	wheelCanvas.addEventListener('mousemove', function(evt) {
+		mousePos = getPos(wheelCanvas, evt.clientX, evt.clientY);
+		console.log(mousePos);
+		imgd = maskCtx.getImageData(mousePos.x, mousePos.y, 1, 1);
+		pix = imgd.data;
+
+		var maskColors = ["0c24ff", "0023ff", "7a00ff", "d700ff", "de42ff", "d9a9ff", "afd9ff", "6ed9ff", "5dd9ff", "5d97ff", "2727ff", "0000ff", "110aff", "8018ff", "1bafff", "2958ff"]; 
+		var color = rgbToHex(pix[1], pix[2], pix[3]);
+		
+		if (maskColors.indexOf(color) > -1) {
+			selected = maskColors.indexOf(color);
+		} else selected = -1;
+		
+		// Set mouse pointer depending on if selected
+		if (selected == -1 && wheelCanvas.style.cursor != "default") {
+			wheelCanvas.style.cursor = "default";
+		} else if (selected != -1 && wheelCanvas.style.cursor != "pointer") {
+			wheelCanvas.style.cursor = "pointer";
+		}
+	}, false);
+
+	// Random starting direction for needle
+	if (getRandomIntInclusive(0, 1) == 1) rotationStep *= -1;
+	setTimeout(function() { allowRotationChange = true; }, rotationChangeTimeout * 1000);
+	
+	// Rotation loop
+	setInterval(function() {
+		// Set rotation speed
+		rotationSpeed += rotationStep;
+		if (rotationSpeed > rotationMax) rotationSpeed = rotationMax;
+		if (rotationSpeed < -rotationMax) rotationSpeed = -rotationMax;
+		
+		// Change rotation if not close to target
+		if (selected == -1 || (selected > -1)) {
+			rotation += rotationSpeed;
+		} 
+		if (rotation > 359) {
+			rotation = 0;
+		} else if (rotation < 0) {
+			rotation = 359; 
+		}
+		
+		// Flip rotation
+		if (selected == -1 && allowRotationChange && getRandomIntInclusive(1, 150) == 1) {
+			rotationStep *= -1;
+			allowRotationChange = false;
+			setTimeout(function() { allowRotationChange = true; }, rotationChangeTimeout * 1000);
+		} 
+		
+		draw();
+		drawCircles();
+		drawText();
+		drawNeedle(needle, (wheelCanvas.width / 2 - needle.width / 2) + 47,  (wheelCanvas.height / 2 - needle.height / 2) + 4, rotation);
+	}, 1000 / 40); 
+}
+
+function getRandomIntInclusive(min, max) {
+  min = Math.ceil(min);
+  max = Math.floor(max);
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function draw() {
+	wheelCtx.clearRect(0, 0, wheelCtx.width, wheelCtx.height);
+	wheelCtx.drawImage(imgWheel, 0, 0);
+	if (selected > -1 && selected < 12 ) {
+		// Draw over currently selected section
+		wheelCtx.drawImage(hover[selected], 0, 0);
+	}
+	
+	// Draw frame border
+	wheelCtx.drawImage(frame, 0, 0);
+	
+	// Also draw main highlight if it's between 1-12 selected tiles
+	if (selected > -1 && selected < 12) {
+		var secondSelect;
+		switch (selected) {
+			case 0:
+			case 1:
+			case 2:
+				secondSelect = 12;
+				break;
+			case 3:
+			case 4:
+			case 5:
+				secondSelect = 13;
+				break;
+			case 6:
+			case 7:
+			case 8:
+				secondSelect = 14;
+				break;
+			case 9:
+			case 10:
+			case 11:
+				secondSelect = 15;
+				break;
+		}
+		wheelCtx.drawImage(hover[secondSelect], 0, 0);
+	} else if (selected >= 12 ) {
+		// Draw over currently selected section
+		wheelCtx.drawImage(hover[selected], 0, 0);
+	}
+}
+
+function drawText() {
+	wheelCtx.fillStyle = "#000000";
+	wheelCtx.font = "13px Verdana";
+	wheelCtx.textAlign = "center";
+	
+	// 1
+	wheelCtx.fillText("Road Map", 202, 72);
+	wheelCtx.fillText("to", 202, 87);
+	wheelCtx.fillText("CEMDNA", 207, 102);
+	
+	// 2
+	wheelCtx.fillText("Account", 290, 75);
+	wheelCtx.fillText("Management", 291, 93);
+	
+	// 3
+	wheelCtx.fillText("Enterprise", 363, 115);
+	wheelCtx.fillText("Feedback", 363, 130);
+	wheelCtx.fillText("Management", 363, 145);
+	
+	// 4
+	wheelCtx.fillText("Business", 395, 190);
+	wheelCtx.fillText("Intelligence", 395, 210);
+	wheelCtx.fillText("Reporting", 395, 230);
+	
+	// 5
+	wheelCtx.fillText("Analytics", 390, 285);
+	
+	// 6
+	wheelCtx.fillText("Benchmarking", 363, 355);
+	
+	// 7
+	wheelCtx.fillText("Corrective", 285, 385);
+	wheelCtx.fillText("Action", 285, 405);
+	wheelCtx.fillText("Plan", 285, 425);
+	
+	// 8
+	wheelCtx.fillText("Employee", 208, 390);
+	wheelCtx.fillText("Management", 201, 410);
+	
+	// 9
+	wheelCtx.fillText("CEMDNA", 130, 340);
+	wheelCtx.fillText("Change", 130, 355);
+	wheelCtx.fillText("Management", 130, 370);
+	
+	// 10
+	wheelCtx.fillText("Communications", 101, 275);
+	wheelCtx.fillText("to Stakeholders", 101, 293);
+	
+	// 11
+	wheelCtx.fillText("WinBack", 95, 200);
+	wheelCtx.fillText("Strategy", 95, 220);
+	
+	// 12
+	wheelCtx.fillText("Return on", 136, 130);
+	wheelCtx.fillText("Investment", 136, 150);
+}
+
+function drawCircles() {
+	drawCircle(235, 142, 1);
+	drawCircle(287, 147, 2);
+	drawCircle(330, 179, 3);
+	drawCircle(352, 232, 4);
+	drawCircle(344, 286, 5);
+	drawCircle(312, 329, 6);
+	drawCircle(261, 349, 7);
+	drawCircle(206, 341, 8);
+	drawCircle(162, 306, 9);
+	drawCircle(142, 255, 10);
+	drawCircle(149, 202, 11);
+	drawCircle(182, 161, 12);
+}
+
+function drawCircle(x, y, number) {	
+	wheelCtx.beginPath();
+	wheelCtx.arc(x, y, 9, 0, 2 * Math.PI);
+	wheelCtx.fillStyle = "#bd3107";
+	wheelCtx.fill();
+	wheelCtx.lineWidth = 1;
+	wheelCtx.strokeStyle = '#9a2907';
+	wheelCtx.stroke();
+	wheelCtx.closePath();
+	
+	wheelCtx.font = "12px Verdana";
+	wheelCtx.textAlign = "center";
+	wheelCtx.fillStyle = "#ffffff";
+	wheelCtx.fillText(number, x, y + 4);
+}
+
+function  getPos(canvas, x, y) {
+	var rect = canvas.getBoundingClientRect(), // abs. size of element
+		scaleX = canvas.width / rect.width,    // relationship bitmap vs. element for X
+		scaleY = canvas.height / rect.height;  // relationship bitmap vs. element for Y
+
+	return {
+		x: (x - rect.left) * scaleX,   // scale mouse coordinates after they have
+		y: (y - rect.top) * scaleY     // been adjusted to be relative to element
+	}
+}
+
+function rgbToHex(r, g, b) {
+	return componentToHex(r) + componentToHex(g) + componentToHex(b);
+}
+
+function componentToHex(c) {
+	var hex = c.toString(16);
+	return hex.length == 1 ? "0" + hex : hex;
+}
+
+function drawNeedle(image, x, y, angle) { 
+	wheelCtx.save();
+	wheelCtx.translate(x, y);
+	wheelCtx.rotate(angle * Math.PI/180);
+	wheelCtx.drawImage(image, -(image.width/2), -(image.height/2));
+	wheelCtx.restore(); 
+}

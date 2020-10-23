@@ -1,0 +1,136 @@
+<?php namespace App\Http\Controllers\Ajax;
+
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Response;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
+
+trait JsonResponderTrait
+{
+
+    protected $statusCode = HttpResponse::HTTP_OK;
+    private $exception = null;
+
+    /**
+     * @param $data
+     * @param array $headers
+     * @return mixed
+     */
+    protected function respond($data, $headers = [])
+    {
+        return Response::json($data, $this->getStatusCode(),  array_merge(['Content-Type' => 'application/json'], $headers));
+    }
+
+    /**
+     * @param string $message
+     * @return mixed
+     */
+    protected function respondInvalid($message = 'Invalid data.')
+    {
+        return $this->setStatusCode(HttpResponse::HTTP_UNPROCESSABLE_ENTITY)->respondWithError($message);
+    }
+
+    /**
+     * @param string $message
+     * @return mixed
+     */
+    protected function respondUnauthorized($message = 'Invalid credentials.')
+    {
+        return $this->setStatusCode(HttpResponse::HTTP_UNAUTHORIZED)->respondWithError($message);
+    }
+
+    /**
+     * @param string $message
+     * @return mixed
+     */
+    protected function respondForbidden($message = 'Access Denied.')
+    {
+        return $this->setStatusCode(HttpResponse::HTTP_FORBIDDEN)->respondWithError($message);
+    }
+
+    /**
+     * @param string $message
+     * @return mixed
+     */
+    protected function respondNotFound($message = 'Not found.')
+    {
+        return $this->setStatusCode(HttpResponse::HTTP_NOT_FOUND)->respondWithError($message);
+    }
+
+    /**
+     * @param string $message
+     * @return mixed
+     */
+    protected function respondInternalError($message = 'Internal error.')
+    {
+        return $this->setStatusCode(HttpResponse::HTTP_INTERNAL_SERVER_ERROR)->respondWithError($message);
+    }
+
+    /**
+     * @param $message
+     * @return mixed
+     */
+    protected function respondWithError($message)
+    {
+        $response = [
+            'message' => $message,
+            'status_code' => $this->getStatusCode(),
+        ];
+
+        // Attach exception if we're in debug mode.
+        if (Config::get('app.debug') && $this->exception) {
+            $response['exception'] = [
+                'message' => $this->exception->getMessage(),
+                'code' => $this->exception->getCode(),
+                'file' => $this->exception->getFile(),
+                'line' => $this->exception->getLine(),
+                'trace' => $this->exception->getTrace(),
+            ];
+
+            $this->exception = null;
+        }
+
+        return $this->respond($response);
+    }
+
+    /*
+     * Getters / Setters
+     */
+
+    /**
+     * @return int
+     */
+    protected function getStatusCode()
+    {
+        return $this->statusCode;
+    }
+
+    /**
+     * @param int $statusCode
+     * @return $this
+     */
+    protected function setStatusCode($statusCode)
+    {
+        $this->statusCode = $statusCode;
+        return $this;
+    }
+
+    /**
+     * @param \Exception $e
+     * @return $this
+     */
+    protected function setException(\Exception $e)
+    {
+        $this->exception = $e;
+        return $this;
+    }
+}
+
+// Usage:
+
+try {
+	$this->userRepo->update($this->auth->user()['id'], ['user_id' => $request->get('userId')]);
+	$this->auth->favoriteProvider($request->get('userId'));
+	return $this->respond(['message' => 'OK']);
+} catch (\Exception $e) {
+	return $this->setException($e)->respondInternalError();
+}

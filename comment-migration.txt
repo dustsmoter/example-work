@@ -1,0 +1,146 @@
+<?php
+
+use App\Course;
+use App\Program;
+use App\Status;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Migrations\Migration;
+
+class MigrateCommentsTable extends Migration
+{
+    /**
+     * Run the migrations.
+     *
+     * @return void
+     */
+    public function up()
+    {
+        // Rename existing table to comments_old
+        Schema::rename('comments', 'comments_old');
+
+        // Copy the structure of comments into comments_new table
+        DB::statement(
+          "CREATE TABLE comments (
+            LIKE comments_old
+            including defaults
+            including constraints
+            including indexes
+          );"
+        );
+
+        // Remove field column
+        Schema::table('comments', function (Blueprint $table) {
+            $table->dropColumn('field');
+        });
+
+        // Add a user ID field to comments.
+        Schema::table('comments', function(Blueprint $table) {
+            $table->unsignedInteger('user_id')->nullable();
+            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
+        });
+
+        // Loop through both class types
+        foreach ([Program::class, Course::class] as $class) {
+            $commentStack = collect();
+
+            $groupCommentsFunc = function (Collection $comments) use (&$commentStack, $class) {
+
+                $grouped = $comments->groupBy('created_at');
+
+                $grouped->each(function ($group, $date) use (&$commentStack, $class) {
+                    // Create key with created_at or append if already exists
+                    if ($commentStack->has($date)) {
+                        foreach ($group as $comment) {
+                            $commentStack[$date]->push($comment);
+                        }
+                    } else {
+                        $commentStack[$date] = $group;
+                    }
+
+                    // There's a new stack, resolve old stack and shift
+                    $oldDate = $commentStack->keys()->first();
+                    if ($date != $oldDate) {
+                        $this->resolveStack($commentStack[$oldDate], $oldDate, $class);
+                        $commentStack->forget($oldDate);
+                    }
+                });
+            };
+
+            DB::table('comments_old')
+                ->whereCommentableType($class)
+                ->whereNotNull('comment')
+                ->where('comment', '<>', '')
+                ->whereNotIn('field', ['0', 've']) // Weird values we don't need
+                ->orderBy('id')
+                ->chunk(10000, $groupCommentsFunc);
+
+            // Resolve last stack
+            // TODO: Can refactor this into main loop
+            if ($commentStack->count() > 0) {
+                $this->resolveStack($commentStack->first(), $commentStack->keys()->first(), $class);
+                $commentStack->forget($commentStack->keys()->first());
+            }
+        }
+
+        Schema::dropIfExists('comments_old');
+
+        // Some of that good ol' Postgres love
+        DB::select("SELECT setval(pg_get_serial_sequence('comments', 'id'), coalesce(max(id),0) + 1, false) FROM comments");
+    }
+
+    /**
+     * Take a stack of grouped comments and insert as one new aggregate comment.
+     *
+     * @param Collection $stack
+     * @param string $date Datetime of grouped stack
+     * @param $class Course|Program
+     */
+    private function resolveStack(Collection $stack, $date, $class)
+    {
+        // This works because I pre-checked DB and made sure there was no conflicts
+        // where two users saved a review at the same time, giving different proposal ids
+        // otherwise I would have to also group and sort out by commentable_id
+        $proposalId = $stack->first()->commentable_id;
+
+        // Cross reference field history because we only care about save and approve/deny
+        // Use an interval buffer of one minute in case field history insert was different
+        $history = DB::table('field_histories')
+            ->select('new_value AS status_id', 'user_id')
+            ->whereHistoryModel($class)
+            ->whereHistoryId($proposalId)
+            ->whereKey('status_id')
+            ->whereIn('new_value', [Status::$statusId[Status::STATUS_APPROVED], Status::$statusId[Status::STATUS_REVISION]])
+            ->whereRaw("created_at >= TIMESTAMP '$date' - INTERVAL '1 MINUTE'")
+            ->whereRaw("created_at <= TIMESTAMP '$date' + INTERVAL '1 MINUTE'")
+            ->first();
+
+        // Matching Approval or Revision history, insert aggregate comment
+        if ($history) {
+            $comment = $history->status_id == Status::$statusId[Status::STATUS_APPROVED] ? "Saved and Approved. " : "Sent to Revision. ";
+            $stack->each(function($stackComment) use (&$comment) {
+                $comment .= "({$stackComment->field}): " . trim(str_replace("\r\n", "", $stackComment->comment)). ". ";
+            });
+
+            // Take the data from the first comment in stack, replace comment field and insert
+            $newComment = (array)$stack->first();
+            $newComment['user_id'] = $history->user_id;
+            $newComment['comment'] = trim($comment);
+            unset($newComment['field']);
+
+            DB::table('comments')->insert($newComment);
+        }
+    }
+
+    /**
+     * Reverse the migrations.
+     *
+     * @return void
+     */
+    public function down()
+    {
+
+    }
+}

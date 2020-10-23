@@ -1,0 +1,113 @@
+<?php
+
+use App\Course;
+use App\Helpers\Codes;
+use App\Program;
+use App\Status;
+use App\User;
+use App\Workflow\CourseWorkflow;
+use App\Workflow\ProgramWorkflow;
+use App\Workflow\Workflow;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
+
+/**
+ * Class WorkflowTest
+ *
+ * @group workflow
+ */
+class WorkflowTest extends TestCase
+{
+    use DatabaseTransactions;
+
+    private $programWorkflow = null;
+    private $courseWorkflow = null;
+    private $codes = null;
+
+    private $programDataExcept = [
+        'status',
+        'reviewStartDate',
+        'inReviewPreviouslyRevision'
+    ];
+
+    private $programAutoApproveAwards = [
+        Codes::AWARD_AA,
+        Codes::AWARD_AS,
+        Codes::AWARD_CERTACHIEVEMENT18,
+        Codes::AWARD_CERTACHIEVEMENT1218,
+    ];
+
+    public function setUp()
+    {
+        parent::setUp();
+
+        $user = factory(User::class)->create();
+        $this->programWorkflow = ProgramWorkflow::factory($user);
+        $this->courseWorkflow = CourseWorkflow::factory($user);
+        $this->codes = app(Codes::class);
+    }
+
+    private function proposalBeenSubmitted(Workflow $workflow, $class)
+    {
+        foreach ([Status::STATUS_ACTIVE, Status::STATUS_APPROVED, Status::STATUS_SUBMITTED] as $status) {
+            $proposalInstance = factory($class)->create([
+                'status_id' => Status::$statusId[Status::STATUS_DRAFT],
+            ]);
+
+            $this->assertFalse($proposalInstance->beenSubmitted($proposalInstance));
+
+            $workflow->changeStatus($proposalInstance, $status);
+            $this->assertSame($proposalInstance->status->content, $status);
+            $this->assertTrue($proposalInstance->beenSubmitted($proposalInstance));
+        }
+    }
+
+    public function testCourseBeenSubmitted()
+    {
+        $this->proposalBeenSubmitted($this->courseWorkflow, Course::class);
+    }
+
+    public function testProgramBeenSubmitted()
+    {
+        $this->proposalBeenSubmitted($this->programWorkflow, Program::class);
+    }
+
+    private function programAutoApproval(callable $callback)
+    {
+        foreach ($this->codes->award()->all() as $award => $description) {
+            $program = $callback($award);
+
+            if (in_array($award, $this->programAutoApproveAwards) ) {
+                $this->assertSame($program->status->content, Status::STATUS_APPROVED);
+            } else {
+                $this->assertSame($program->status->content, Status::STATUS_SUBMITTED);
+            }
+        }
+    }
+
+    public function testNewProgramAutoApproval()
+    {
+        $this->programAutoApproval(function ($award) {
+            $program = factory(Program::class)->make([
+                'status_id' => Status::$statusId[Status::STATUS_DRAFT],
+                'award' => $award,
+                'control_number' => str_random(),
+            ]);
+
+            return $this->programWorkflow->newProposal(collect($program->toArray())->except($this->programDataExcept), Status::STATUS_SUBMITTED);
+        });
+    }
+
+    public function testUpdateProgramAutoApproval()
+    {
+        $this->programAutoApproval(function ($award) {
+            $program = factory(Program::class)->create(['status_id' => Status::$statusId[Status::STATUS_DRAFT]]);
+
+            $data = [
+                'award' => $award,
+                'control_number' => str_random(),
+            ];
+
+            return $this->programWorkflow->updateProposal($program, collect($data), Status::STATUS_SUBMITTED);
+        });
+    }
+}

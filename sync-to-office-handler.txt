@@ -1,0 +1,116 @@
+<?php namespace App\Handlers\Events;
+
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\App;
+use App\Clients\Repositories\ClientRepository;
+use App\Offices\OfficeSync;
+use App\Offices\Repositories\OfficeRepository;
+use App\Events\Event;
+use App\Events\UserProfileUpdated;
+use App\Events\UserRegistered;
+use Illuminate\Queue\InteractsWithQueue;
+use App\Helpers\Repositories\LogRepository;
+use App\Users\Repositories\UserRepository;
+
+class SyncToOffice implements ShouldQueue
+{
+
+    use InteractsWithQueue;
+
+    /**
+     * @var ClientRepository
+     */
+    private $clientRepo;
+
+    /**
+     * @var OfficeRepository
+     */
+    private $officeRepo;
+    /**
+     * @var LogRepository
+     */
+    private $logRepo;
+    /**
+     * @var UserRepository
+     */
+    private $userRepo;
+
+    public function __construct(UserRepository $userRepo, ClientRepository $clientRepo, OfficeRepository $officeRepo, LogRepository $logRepo)
+    {
+        $this->userRepo = $userRepo;
+        $this->clientRepo = $clientRepo;
+        $this->officeRepo = $officeRepo;
+        $this->logRepo = $logRepo;
+    }
+
+    /**
+     * Handle the event.
+     *
+     * @param Event|UserRegistered|UserProfileUpdated $event
+     */
+    public function handle(Event $event)
+    {
+        $user = $event->user;
+        if (!$this->userRepo->can($user['id'], 'sync_to_office')) return;
+
+        if (!$clientId = $this->userRepo->getPrimaryClientId($user['id'])) return; 
+
+        // List of office's client would like to sync to
+        $offices = $this->clientRepo->getOffices($clientId);
+
+        // Loop through office's and sync each one.
+        $offices->each(function($office) use($user) {
+            try {
+                // Log events to store in log when finished.
+                $log = [
+                    'log' => [],
+                    'loggable_id' => $office['id'],
+                    'started_at' => new \DateTime(),
+                ];
+
+                $syncer = $this->getSyncer($office);
+
+                if ($syncer->should(OfficeSync::REGISTER_USER_PUSH)) {
+                    $syncer->auth()->createPatient($user['id']);
+
+                    $log['log']['successes'][] = "{$user['id']}";
+                    $this->writeLog($log, true);
+                }
+            } catch (\Exception $e) {
+                $log['log']['errors'][] = [
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'user' => $user['id'],
+                ];
+                $this->writeLog($log, false);
+            }
+        });
+    }
+
+    /**
+     * Write to Log and exit console.
+     * @param array $log
+     * @param bool $success
+     */
+    private function writeLog(array $log, $success = true)
+    {
+        $log['loggable_type'] = 'App\Offices\Office';
+        $log['stopped_at'] = new \DateTime();
+        $log['result'] = $success ? 'success' : 'error';
+        $log['log'] = json_encode($log['log']);
+        $this->logRepo->create($log);
+    }
+
+    private function getSyncer($office)
+    {
+        if (class_exists($office['syncer'])) {
+            $syncer = App::make($office['syncer']);
+            $syncer->setOffice($office);
+
+            return $syncer;
+        } else {
+            throw new \Exception('Could not instantiate syncer: ' . $office['syncer']);
+        }
+    }
+}
